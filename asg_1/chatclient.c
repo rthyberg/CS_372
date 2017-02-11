@@ -37,18 +37,20 @@ int main(int argc, char *argv[])
        error("FAILED TO CONNECT TO CLIENT: ");
        }
     printf("CONNECTED TO HOST: %s on PORT: %s\n", argv[1], argv[2]);
+    // vars to store our msgs
     char clientMsg[501];
     char hostMsg[501];
     char clientName[11]; // 1 extra than max then trim off \n
     char serverName[11];
-    memset((char*) &clientName, '\0', sizeof clientName);
+    memset((char*) &clientName, '\0', sizeof clientName); // zero out memory
     printf("Please enter your name: ");
     fgets(clientName, 11, stdin);
-    int c;
-    while ((c = getchar()) != '\n' && c != EOF); // portable purge of stdin http://stackoverflow.com/questions/2187474/i-am-not-able-to-flush-stdin
     sendMsg(sockfd, clientName);
     memset((char*) &serverName, '\0', sizeof serverName);
     recvMsg(sockfd, serverName, 11);
+    char* pos;
+    if ((pos=strchr(clientName, '\n')) != NULL)
+        *pos = '\0';
     printf("Connected with %s:\n", serverName);
     while(1) {
         memset((char*) &clientMsg, '\0', sizeof clientMsg);
@@ -89,26 +91,25 @@ int sendMsg(int sockfd, void* buffer) {
     } while(totalSent < header);
     return 0;
 }
+
+/* A RecvAll function that also reads in a 2byte header before reading in a message*/
 int recvMsg(int sockfd, void* buffer, int sizeofBuffer) {
     int recd = 0;
     int totalRecd = 0;
     unsigned short nheader, header;
     do {
-        recd = recv(sockfd, &nheader, 2-totalRecd, 0);
+        recd = recv(sockfd, &nheader, 2-totalRecd, 0); // loop till the header is received.. 2bytes unsigned shortl
         totalRecd = totalRecd + recd;
     } while(totalRecd < 2);
     recd = 0;
     totalRecd = 0;
-    header = ntohs(nheader);
-    //printf("%u: %u\n", header, sizeofBuffer);
-    if(header > sizeofBuffer) {
+    header = ntohs(nheader); // convert from network byte
+    if(header > sizeofBuffer) { // if our header is bigger than our buffer then only read the size of the buffer
         header = sizeofBuffer;
     }
     do {
-        recd = recv(sockfd, buffer, (header-totalRecd), 0);
+        recd = recv(sockfd, buffer, (header-totalRecd), 0); // loop recv until we read a specifed bytes from the header
         totalRecd = totalRecd + recd;
-        //printf("%s :\n", buffer);
     } while(totalRecd < header);
-    //printf("Header for:%d... %s\n", header, buffer);
     return 0;
 }
