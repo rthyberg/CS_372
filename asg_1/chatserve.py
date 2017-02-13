@@ -16,13 +16,13 @@ class MyTCPHandler(socketserver.StreamRequestHandler):
         # we can now use e.g. readline() instead of raw recv() calls
         headerSize = self.myheader()
         self.data = ''
-        clientName = self.request.recv(headerSize).decode('utf-8').strip('\n')
+        clientName = self.request.recv(headerSize).decode('utf-8').strip('\n') # strip and convert into string
         clientName = clientName[0:10]
         print("{} has connected!".format(clientName))
-        serv = input("Please enter your name: ")
+        serv = input("Please enter your name: ") # get server handle
         serverName = "".join(serv[0:10])
         self.mySend(serverName)
-        while True:
+        while True: # get messages
             headerSize = self.myheader()
             self.data = self.myreceive(headerSize).decode('utf-8').strip('\n')
             if self.data == '\quit':
@@ -32,16 +32,12 @@ class MyTCPHandler(socketserver.StreamRequestHandler):
             print("{}> {}".format(clientName, self.data))
             msg = input("{} > ".format(serverName))
             self.mySend(msg)
-            print(msg)
             if msg == "\quit":
                 print("Disconnecting from {}".format(clientName))
                 break
-            # Likewise, self.wfile is a file-like object used to write back
-            # to the client
-            #self.wfile.write(self.data.upper())
         self.request.close()
 
-    def myreceive(self, MSGLEN):
+    def myreceive(self, MSGLEN): # my receive all
         chunks = []
         bytes_recd = 0
         while bytes_recd < MSGLEN:
@@ -52,7 +48,7 @@ class MyTCPHandler(socketserver.StreamRequestHandler):
             bytes_recd = bytes_recd + len(chunk)
         return b''.join(chunks)
 
-    def myheader(self):
+    def myheader(self): # my receive all for a consistent header of 2 BYTES
         chunks = []
         bytes_recd = 0
         while bytes_recd < 2:
@@ -65,7 +61,7 @@ class MyTCPHandler(socketserver.StreamRequestHandler):
         mynum = int.from_bytes(b"".join(chunks),'big')
         return mynum
 
-    def mySend(self, msg):
+    def mySend(self, msg): # abstracted out sendall to clean up the handler
         header = (len(msg)).to_bytes(2,'big');
         bmsg = msg.encode('utf-8')
         self.request.sendall(header);
@@ -75,15 +71,12 @@ if __name__ == "__main__":
     if len(sys.argv) != 2:
         print("USAGE: chatserve.py PORT")
         sys.exit(1)
-    HOST, PORT = socketserver.socket.gethostname(), int(sys.argv[1])
+    HOST, PORT = socketserver.socket.gethostname(), int(sys.argv[1]) # get cmdline args
 
-    # Create the server, binding to localhost on port 9999
-    server = socketserver.TCPServer((HOST, PORT), MyTCPHandler)
-    signal.signal(signal.SIGINT, signal_handler)
-    # Activate the server; this will keep running until you
-    # interrupt the program with Ctrl-C
+    server = socketserver.TCPServer((HOST, PORT), MyTCPHandler) # start tcp server
+    signal.signal(signal.SIGINT, signal_handler) # use sig int to quit
     print("Connection open on port " + HOST, PORT);
-    server.serve_forever()
+    server.serve_forever() # keep server up
 
 
 
