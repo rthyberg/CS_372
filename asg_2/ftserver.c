@@ -14,6 +14,10 @@ erver.c -- a stream socket server demo
 #include <arpa/inet.h>
 #include <sys/wait.h>
 #include <signal.h>
+void error(const char *msg) { perror(msg); exit(0); } // Error function used for reporting issues
+int setUpTCPSocket(char*, char*);
+int sendMsg(int, void*);
+int recvMsg(int, void*, int);
 
 
 #define BACKLOG 10     // how many pending connections queue will hold
@@ -114,7 +118,6 @@ int main(int argc, char *argv[])
 
     while(1) {  // main accept() loop
         sin_size = sizeof their_addr;
-        printf("we here bby\n");
         new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
         if (new_fd == -1) {
             perror("accept");
@@ -128,8 +131,34 @@ int main(int argc, char *argv[])
 
         if (!fork()) { // this is the child process
             close(sockfd); // child doesn't need the listener
-            if (send(new_fd, "Hello, world!", 13, 0) == -1)
-                perror("send");
+            char msg [500];
+            char* p;
+            char* port = calloc(15, sizeof(char));
+            char* hostname = calloc(500, sizeof(char));
+            int datasock;
+            const char* space = " ";
+            memset((char*) &msg, '\0', sizeof msg);
+            recvMsg(new_fd, msg, 500);
+
+            p = strtok(msg, space);
+            if(strcmp(p, "-l") == 0) {
+                char * valid = "valid";
+                sendMsg(new_fd, valid);
+                port = strtok(NULL, space);
+                hostname = strtok(NULL, "\n");
+                datasock = setUpTCPSocket(hostname, port);
+                sendMsg(datasock, "Heres some text for ya");
+                close(datasock);
+            } else if (strcmp(p, "-g") == 0) {
+                printf("Got -g\n");
+                char * valid = "valid";
+                sendMsg(new_fd, valid);
+
+            } else {
+                printf("invalid command recieved\n");
+                char * invalid = "Invalid command sent";
+                sendMsg(new_fd, invalid);
+            }
             close(new_fd);
             exit(0);
         }
@@ -137,4 +166,62 @@ int main(int argc, char *argv[])
     }
 
     return 0;
+}
+/* Loops recv so al data gets sent*/
+int sendMsg(int sockfd, void* buffer) {
+    int sent = 0; // holds the number of bytes sent
+    int totalSent = 0; // hold the total of bytes sent
+    unsigned short header = strlen(buffer);
+    unsigned short nheader = htons(header); // we are gonna send a 16bit header representing
+    do {                                               // the size of our msg
+        sent = send(sockfd, &nheader, (sizeof(int16_t) - totalSent), 0); // sends the necessary amount of bytes
+        totalSent = totalSent + sent;  // adds the number to total sent
+    } while(totalSent < 2); // if we didnt send all the bytes then loop till we do
+    sent = 0; // reset values for the message send
+    totalSent = 0;
+    do {
+       sent = send(sockfd, buffer, (header-totalSent), 0); //same process but with msg
+       totalSent = totalSent + sent;
+    } while(totalSent < header);
+    return 0;
+}
+
+/* A RecvAll function that also reads in a 2byte header before reading in a message*/
+int recvMsg(int sockfd, void* buffer, int sizeofBuffer) {
+    int recd = 0;
+    int totalRecd = 0;
+    unsigned short nheader, header;
+    do {
+        recd = recv(sockfd, &nheader, 2-totalRecd, 0); // loop till the header is received.. 2bytes unsigned shortl
+        totalRecd = totalRecd + recd;
+    } while(totalRecd < 2);
+    recd = 0;
+    totalRecd = 0;
+    header = ntohs(nheader); // convert from network byte
+    if(header > sizeofBuffer) { // if our header is bigger than our buffer then only read the size of the buffer
+        header = sizeofBuffer;
+    }
+    do {
+        recd = recv(sockfd, buffer, (header-totalRecd), 0); // loop recv until we read a specifed bytes from the header
+        totalRecd = totalRecd + recd;
+    } while(totalRecd < header);
+    return 0;
+}
+
+int setUpTCPSocket(char* host, char* port) {
+    struct addrinfo hints, *res;
+    int status, sockfd;
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_PASSIVE; // use my IP
+    if((status = getaddrinfo(host, port,  &hints, &res)) != 0) {
+        fprintf(stderr, "ftserver: %s\n", gai_strerror(status));
+        return 2;
+    }
+    sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if(connect(sockfd, res->ai_addr, res->ai_addrlen) == -1) {
+        error("FAILED TO CONNECT TO CLIENT");
+    }
+    return sockfd;
 }
