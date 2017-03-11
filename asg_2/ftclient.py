@@ -4,7 +4,21 @@ import signal
 import sys
 import string
 import struct
+import os
 import socket as so
+
+def mybigheader(sockfd): # my receive all for a consistent header of 4 BYTES
+    chunks = []
+    bytes_recd = 0
+    while bytes_recd < 4:
+        chunk = sockfd.recv((4))
+        if chunk == b'':
+            raise RuntimeError("socket connection broken")
+        chunks.append(chunk)
+        bytes_recd = bytes_recd + len(chunk)
+        bytes_recd += 1
+    mynum = int.from_bytes(b"".join(chunks),'big')
+    return mynum
 
 def myheader(sockfd): # my receive all for a consistent header of 2 BYTES
     chunks = []
@@ -17,6 +31,7 @@ def myheader(sockfd): # my receive all for a consistent header of 2 BYTES
         bytes_recd = bytes_recd + len(chunk)
         bytes_recd += 1
     mynum = int.from_bytes(b"".join(chunks),'big')
+    print(mynum)
     return mynum
 
 def recvAll(sockfd, MSGLEN): # my receive all
@@ -67,10 +82,19 @@ if __name__ == "__main__":
         conn, addr = s.accept()
         with conn:
             print('Connected by', addr)
-            header = myheader(conn)
-            received = str(recvAll(conn, header), "utf-8")
-            conn.close()
+            if COM == "-l":
+                header = myheader(conn)
+                received = str(recvAll(conn, header), "utf-8")
+                conn.close()
+            elif COM == "-g":
+                header = mybigheader(conn)
+                received = recvAll(conn, header)
+                conn.close
 
-    print("Sent:     {}".format(COM + " " + FILENAME + " " + str(DPORT)))
-    print("Recieved header: {}".format(header))
-    print("Received: {}".format(received))
+    if COM == "-g":
+        if os.path.isfile(FILENAME):
+            FILENAME = "Copy-of-"+ FILENAME;
+        fp = open(FILENAME, "wb")
+        fp.write(received)
+    elif COM == "-l":
+        print("Current Dir: {}".format(received))

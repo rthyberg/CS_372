@@ -5,6 +5,7 @@ erver.c -- a stream socket server demo
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <dirent.h>
 #include <errno.h>
 #include <string.h>
 #include <sys/types.h>
@@ -16,6 +17,7 @@ erver.c -- a stream socket server demo
 #include <signal.h>
 void error(const char *msg) { perror(msg); exit(0); } // Error function used for reporting issues
 int setUpTCPSocket(char*, char*);
+int sendMyFile(int, void*, long);
 int sendMsg(int, void*);
 int recvMsg(int, void*, int);
 
@@ -132,34 +134,75 @@ int main(int argc, char *argv[])
         if (!fork()) { // this is the child process
             close(sockfd); // child doesn't need the listener
             char msg [500];
+            char* dirbuf = calloc(1024, sizeof(char));
             char* p;
-            char* port = calloc(15, sizeof(char));
-            char* hostname = calloc(500, sizeof(char));
+            char* cport;
+            char* chostname;
+            char* cfilename;
             int datasock;
             const char* space = " ";
             memset((char*) &msg, '\0', sizeof msg);
             recvMsg(new_fd, msg, 500);
-
             p = strtok(msg, space);
             if(strcmp(p, "-l") == 0) {
                 char * valid = "valid";
                 sendMsg(new_fd, valid);
-                port = strtok(NULL, space);
-                hostname = strtok(NULL, "\n");
-                datasock = setUpTCPSocket(hostname, port);
-                sendMsg(datasock, "Heres some text for ya");
+                cport = strtok(NULL, space);
+                chostname = strtok(NULL, "\n");
+                printf("%s, %s", chostname, cport);
+                datasock = setUpTCPSocket(chostname, cport);
+                DIR           *d;
+                struct dirent *dir;
+                d = opendir(".");
+                if (d) { //src: http://stackoverflow.com/questions/4204666/how-to-list-files-in-a-directory-in-a-c-program
+                    while ((dir = readdir(d)) != NULL) {
+                        char* dirname = strcat(dir->d_name, " ");
+                        strcat(dirbuf, dirname);
+                    }
+                closedir(d);
+                printf("%s\n", dirbuf);
+                sendMsg(datasock, dirbuf);
+                } else {
+                    sendMsg(datasock, "Error getting dir");
+                }
+                free(dirbuf);
                 close(datasock);
             } else if (strcmp(p, "-g") == 0) {
-                printf("Got -g\n");
                 char * valid = "valid";
                 sendMsg(new_fd, valid);
-
+                cfilename = strtok(NULL, space);
+                cport = strtok(NULL, space);
+                chostname = strtok(NULL, "\n");
+                datasock = setUpTCPSocket(chostname, cport);
+                FILE* fp = fopen(cfilename, "r");
+                if(fp == NULL) {
+                    error("Can not open file");
+                    sendMsg(new_fd, "Cannot find file");
+                } else {
+                    fseek(fp, 0L, SEEK_END);
+                    long size = ftell(fp);
+                    fseek(fp, 0L, SEEK_SET);
+                    /* allocate memory for entire content */
+                    char* myfiletext = calloc( 1, size+1 );
+                    if( !myfiletext ) { // src: http://stackoverflow.com/questions/3747086/reading-the-whole-text-file-into-a-char-array-in-c
+                        fclose(fp);
+                        sendMsg(new_fd,"memory alloc fails");
+                    } else { /* copy the file into the buffer */
+                        if( 1!=fread( myfiletext , size, 1 , fp) ) {
+                            fclose(fp);
+                            sendMsg(new_fd, "failed to read file");
+                        } else {
+                            sendMyFile(datasock, myfiletext, size);
+                            fclose(fp);
+                        }
+                        free(myfiletext);
+                    }
+                }
             } else {
                 printf("invalid command recieved\n");
                 char * invalid = "Invalid command sent";
                 sendMsg(new_fd, invalid);
             }
-            close(new_fd);
             exit(0);
         }
         close(new_fd);  // parent doesn't need this
@@ -168,11 +211,31 @@ int main(int argc, char *argv[])
     return 0;
 }
 /* Loops recv so al data gets sent*/
+
+int sendMyFile(int sockfd, void* buffer, long header) {
+    int sent = 0; // holds the number of bytes sent
+    int totalSent = 0; // hold the total of bytes sent
+    long nheader = htonl(header); // we are gonna send a 32bit header representing
+    do {                                               // the size of our msg
+        sent = send(sockfd, &nheader, (sizeof(int32_t) - totalSent), 0); // sends the necessary amount of bytes
+        totalSent = totalSent + sent;  // adds the number to total sent
+    } while(totalSent < 2); // if we didnt send all the bytes then loop till we do
+    sent = 0; // reset values for the message send
+    totalSent = 0;
+    do {
+       sent = send(sockfd, buffer, (header-totalSent), 0); //same process but with msg
+       totalSent = totalSent + sent;
+    } while(totalSent < header);
+    return 0;
+}
+
+/* Loops recv so al data gets sent*/
 int sendMsg(int sockfd, void* buffer) {
     int sent = 0; // holds the number of bytes sent
     int totalSent = 0; // hold the total of bytes sent
     unsigned short header = strlen(buffer);
     unsigned short nheader = htons(header); // we are gonna send a 16bit header representing
+    printf("%u \n %u\n", header, nheader);
     do {                                               // the size of our msg
         sent = send(sockfd, &nheader, (sizeof(int16_t) - totalSent), 0); // sends the necessary amount of bytes
         totalSent = totalSent + sent;  // adds the number to total sent
@@ -185,7 +248,6 @@ int sendMsg(int sockfd, void* buffer) {
     } while(totalSent < header);
     return 0;
 }
-
 /* A RecvAll function that also reads in a 2byte header before reading in a message*/
 int recvMsg(int sockfd, void* buffer, int sizeofBuffer) {
     int recd = 0;
