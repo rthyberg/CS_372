@@ -144,13 +144,10 @@ int main(int argc, char *argv[])
             memset((char*) &msg, '\0', sizeof msg);
             recvMsg(new_fd, msg, 500);
             p = strtok(msg, space);
+            // Get the dir
             if(strcmp(p, "-l") == 0) {
-                char * valid = "valid";
-                sendMsg(new_fd, valid);
                 cport = strtok(NULL, space);
                 chostname = strtok(NULL, "\n");
-                printf("%s, %s", chostname, cport);
-                datasock = setUpTCPSocket(chostname, cport);
                 DIR           *d;
                 struct dirent *dir;
                 d = opendir(".");
@@ -160,49 +157,53 @@ int main(int argc, char *argv[])
                         strcat(dirbuf, dirname);
                     }
                 closedir(d);
-                printf("%s\n", dirbuf);
-                sendMsg(datasock, dirbuf);
+                char * valid = "valid";
+                sendMsg(new_fd, valid); // send validation messeage
+                datasock = setUpTCPSocket(chostname, cport); // set up connection
+                sendMsg(datasock, dirbuf);  // send the data
+                close(datasock);
                 } else {
-                    sendMsg(datasock, "Error getting dir");
+                    sendMsg(new_fd, "Error getting dir");
                 }
                 free(dirbuf);
                 close(datasock);
-            } else if (strcmp(p, "-g") == 0) {
-                char * valid = "valid";
-                sendMsg(new_fd, valid);
+            } else if (strcmp(p, "-g") == 0) {  // Send a file to client
                 cfilename = strtok(NULL, space);
                 cport = strtok(NULL, space);
                 chostname = strtok(NULL, "\n");
-                datasock = setUpTCPSocket(chostname, cport);
                 FILE* fp = fopen(cfilename, "r");
-                if(fp == NULL) {
-                    error("Can not open file");
+                if(fp == NULL) { // check if file opened
                     sendMsg(new_fd, "Cannot find file");
+                    error("Can not open file");
                 } else {
-                    fseek(fp, 0L, SEEK_END);
+                    fseek(fp, 0L, SEEK_END); // get size of file
                     long size = ftell(fp);
                     fseek(fp, 0L, SEEK_SET);
                     /* allocate memory for entire content */
-                    char* myfiletext = calloc( 1, size+1 );
+                    char* myfiletext = calloc( 1, size+1 ); // allocate memory for file
                     if( !myfiletext ) { // src: http://stackoverflow.com/questions/3747086/reading-the-whole-text-file-into-a-char-array-in-c
-                        fclose(fp);
-                        sendMsg(new_fd,"memory alloc fails");
+                        fclose(fp); // see if we have enough memory
+                        sendMsg(new_fd, "memory alloc fails");
                     } else { /* copy the file into the buffer */
-                        if( 1!=fread( myfiletext , size, 1 , fp) ) {
+                        if( 1!=fread( myfiletext , size, 1 , fp) ) { // check if we can read file
                             fclose(fp);
                             sendMsg(new_fd, "failed to read file");
-                        } else {
-                            sendMyFile(datasock, myfiletext, size);
+                        } else { // send the allocated buffer
+                            char * valid = "valid";
+                            sendMsg(new_fd, valid); // send valid message
+                            datasock = setUpTCPSocket(chostname, cport); // setup connection
+                            sendMyFile(datasock, myfiletext, size); // send file
+                            close(datasock);
                             fclose(fp);
                         }
                         free(myfiletext);
                     }
                 }
             } else {
-                printf("invalid command recieved\n");
                 char * invalid = "Invalid command sent";
-                sendMsg(new_fd, invalid);
+                sendMsg(new_fd, invalid); // send invalid
             }
+            close(new_fd);
             exit(0);
         }
         close(new_fd);  // parent doesn't need this
@@ -235,7 +236,6 @@ int sendMsg(int sockfd, void* buffer) {
     int totalSent = 0; // hold the total of bytes sent
     unsigned short header = strlen(buffer);
     unsigned short nheader = htons(header); // we are gonna send a 16bit header representing
-    printf("%u \n %u\n", header, nheader);
     do {                                               // the size of our msg
         sent = send(sockfd, &nheader, (sizeof(int16_t) - totalSent), 0); // sends the necessary amount of bytes
         totalSent = totalSent + sent;  // adds the number to total sent
@@ -270,6 +270,7 @@ int recvMsg(int sockfd, void* buffer, int sizeofBuffer) {
     return 0;
 }
 
+/* abstract out setting up connection*/
 int setUpTCPSocket(char* host, char* port) {
     struct addrinfo hints, *res;
     int status, sockfd;
